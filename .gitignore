@@ -1,0 +1,8 @@
+*.o
+*.swp
+all_tests
+_build/
+*.hex
+*.jlink
+.gdbinit
+*.log
