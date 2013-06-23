@@ -2,7 +2,10 @@
 *.swp
 all_tests
 _build/
+build/
 *.hex
 *.jlink
 .gdbinit
 *.log
+*.d
+*.lnk

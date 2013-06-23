@@ -52,7 +52,6 @@ static uint32_t response_char_add(ble_bls_t * p_bls, ble_bls_init_t * p_bls_init
     cccd_md.vloc = BLE_GATTS_VLOC_STACK;
 
     memset(&char_md, 0, sizeof(char_md));
-    char_md.char_props.indicate = 1;
     char_md.char_props.notify = 1;
     char_md.p_cccd_md = &cccd_md;
 
@@ -94,26 +93,29 @@ static uint32_t data_char_add(ble_bls_t * p_bls, ble_bls_init_t * p_bls_init)
 
 static void on_write(ble_bls_t * p_bls, ble_evt_t * p_ble_evt)
 {
-    ble_gatts_evt_write_t write_evt = p_ble_evt->evt.gatts_evt.params.write;
+    ble_gatts_evt_write_t * write_evt = &p_ble_evt->evt.gatts_evt.params.write;
     ble_bls_evt_t bls_evt;
-    if (write_evt.handle == p_bls->cmd_char_handles.value_handle)
+    if (write_evt->handle == p_bls->cmd_char_handles.value_handle)
     {
-        bls_evt.cmd = write_evt.data[0];
+        bls_evt.cmd = write_evt->data[0];
 
         p_bls->evt_handler(p_bls, &bls_evt);
     }
-    else if (write_evt.handle == p_bls->data_char_handles.value_handle)
+    else if (write_evt->handle == p_bls->data_char_handles.value_handle)
     {
         bls_evt.cmd = BLE_BLS_CMD_WRITE_LINE;
 
-        for (uint8_t i = 0; i < write_evt.len; i++)
+        for (uint8_t i = 0; i < write_evt->len; i++)
         {
-            p_bls->buffer[p_bls->buffer_index++] = write_evt.data[i];
+            p_bls->buffer[p_bls->buffer_index++] = write_evt->data[i];
         }
 
         if (p_bls->buffer[p_bls->buffer_index-1] == '\n' || p_bls->buffer_index >= BLE_BLS_MAX_LINE_LEN)
         {
+			bls_evt.data = (uint8_t *) p_bls->buffer;
+			bls_evt.len = p_bls->buffer_index;
             p_bls->evt_handler(p_bls, &bls_evt);
+			p_bls->buffer_index = 0;
         }
     }
 
@@ -150,6 +152,7 @@ uint32_t ble_bls_init(ble_bls_t * p_bls, ble_bls_init_t * p_bls_init)
     {
         return NRF_ERROR_INVALID_PARAM;
     }
+	p_bls->evt_handler = p_bls_init->evt_handler;
 
     err_code = sd_ble_uuid_vs_add(&base_uuid, &p_bls->uuid_type);
     if (err_code != NRF_SUCCESS)
@@ -192,7 +195,7 @@ uint32_t ble_bls_response_send(ble_bls_t * p_bls, ble_bls_response_t response)
     uint16_t len = sizeof(response);
 
     params.handle = p_bls->response_char_handles.value_handle;
-    params.type = BLE_GATT_HVX_INDICATION;
+    params.type = BLE_GATT_HVX_NOTIFICATION;
     params.offset = 0;
     params.p_data = &response;
     params.p_len = &len;

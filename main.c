@@ -35,15 +35,18 @@
 #include "ble_srv_common.h"
 #include "ble_advdata.h"
 #include "ble_conn_params.h"
-//#include "ble_nrf6310_pins.h"
 #include "ble_eval_board_pins.h"
 #include "ble_stack_handler.h"
 #include "app_timer.h"
+#include "nrf_soc.h"
 
 #include "ble_bls.h"
 #include "hexparser.h"
 
+#include "nrf_delay.h"
+
 #define APPLICATION_BASE_ADDRESS 0x20000
+
 //#define WAKEUP_BUTTON_PIN               NRF6310_BUTTON_0                            /**< Button used to wake up the application. */
 #define WAKEUP_BUTTON_PIN               EVAL_BOARD_BUTTON_0                            /**< Button used to wake up the application. */
 // YOUR_JOB: Define any other buttons to be used by the applications:
@@ -78,6 +81,9 @@ static ble_gap_sec_params_t             m_sec_params;                           
 static uint16_t                         m_conn_handle = BLE_CONN_HANDLE_INVALID;    /**< Handle of the current connection. */
 static ble_bls_t                        m_bls;
 
+bool is_bootloader_running = true;
+
+typedef void (*application_main_t)(void);
 
 /**@brief Error handler function, which is called when an error has occurred. 
  *
@@ -92,8 +98,14 @@ void app_error_handler(uint32_t error_code, uint32_t line_num, const uint8_t * p
 {
     nrf_gpio_pin_set(CONNECTED_LED_PIN_NO);
     nrf_gpio_pin_set(ADVERTISING_LED_PIN_NO);
+    
+    
 
-    while(1);
+    while(1)
+    {
+        nrf_gpio_pin_toggle(CONNECTED_LED_PIN_NO);
+        nrf_delay_us(100000);
+    }
 }
 
 
@@ -236,16 +248,16 @@ void erase_app(void)
     NRF_NVMC->CONFIG = 0x0;
 }
 
-void write_record(uint16_t base_address, hexparser_record * record)
+void write_record(uint32_t base_address, hexparser_record * record)
 {
     NRF_NVMC->CONFIG = NVMC_CONFIG_WEN_Wen << NVMC_CONFIG_WEN_Pos;
 
     for (uint32_t i = 0; i < record->byte_count / 4; i++)
     {
+        *(uint32_t *) (base_address + (record->address + (4*i))) = record->data.words[i];
         while (NRF_NVMC->READY & (NVMC_READY_READY_Busy << NVMC_READY_READY_Pos))
         {
         }
-        *(uint32_t *) (base_address << 4 | (record->address + (4*i))) = record->data.words[i];
     }
     
     NRF_NVMC->CONFIG = NVMC_CONFIG_WEN_Ren << NVMC_CONFIG_WEN_Pos;
@@ -253,7 +265,7 @@ void write_record(uint16_t base_address, hexparser_record * record)
 
 ble_bls_response_t write_line(ble_bls_evt_t * evt)
 {
-    static uint16_t base_address = 0;
+    static uint32_t base_address = 0;
     hexparser_record record;
     hexparser_parse_string((char * ) evt->data, evt->len, &record);
 
@@ -265,14 +277,17 @@ ble_bls_response_t write_line(ble_bls_evt_t * evt)
     switch (record.type)
     {
         case EXTENDED_LINEAR_ADDRESS_RECORD:
-        case EXTENDED_SEGMENT_ADDRESS_RECORD:
-            base_address = record.data.words[0];
+            base_address = record.data.words[0] << 16;
             break;
 
         case DATA_RECORD:
             write_record(base_address, &record);
             break;
 
+        case EXTENDED_SEGMENT_ADDRESS_RECORD:
+			base_address = record.data.words[0] << 4;
+			break;
+ 
         default:
             break;
     }
@@ -282,14 +297,19 @@ ble_bls_response_t write_line(ble_bls_evt_t * evt)
     return BLE_BLS_RESPONSE_SUCCESS;
 }
 
+static void advertising_start(void);
+
 static void ble_bls_evt_handler(ble_bls_t * p_bls, ble_bls_evt_t * p_bls_evt)
 {
+	uint32_t err_code;
+    nrf_gpio_pin_toggle(ADVERTISING_LED_PIN_NO);
+    
     ble_bls_response_t result;
     switch (p_bls_evt->cmd)
     {
         case BLE_BLS_CMD_ERASE_APP:
-            erase_app();
-            ble_bls_response_send(p_bls, BLE_BLS_RESPONSE_SUCCESS);
+            sd_power_gpregret_set(0xAA);
+			sd_nvic_SystemReset();
             break;
 
         case BLE_BLS_CMD_WRITE_LINE:
@@ -303,6 +323,7 @@ static void ble_bls_evt_handler(ble_bls_t * p_bls, ble_bls_evt_t * p_bls_evt)
             break;
 
         case BLE_BLS_CMD_NOP:
+            nrf_gpio_pin_toggle(CONNECTED_LED_PIN_NO);
             ble_bls_response_send(p_bls, BLE_BLS_RESPONSE_SUCCESS);
             break;
     }
@@ -398,7 +419,7 @@ static void on_ble_evt(ble_evt_t * p_ble_evt)
 
             if (err_code == NRF_SUCCESS)
             {
-                advertising_start();
+                //advertising_start();
             }
             break;
             
@@ -509,6 +530,22 @@ static void power_manage(void)
  */
 int main(void)
 {
+    if (NRF_POWER->GPREGRET == 0xAA)
+	{
+		erase_app();
+		NRF_POWER->GPREGRET = 0;
+	}
+	
+	nrf_gpio_cfg_input(EVAL_BOARD_BUTTON_0, NRF_GPIO_PIN_PULLUP);
+	
+	application_main_t application_main = *(application_main_t *)(APPLICATION_BASE_ADDRESS+4);
+    if ((application_main != (application_main_t) 0xFFFFFFFF) && 
+        (nrf_gpio_pin_read(EVAL_BOARD_BUTTON_0) != 0))
+    {
+		is_bootloader_running = false;
+        application_main();
+    }
+	
     // Initialize
     leds_init();
     timers_init();

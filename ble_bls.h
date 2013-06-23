@@ -13,10 +13,10 @@
 
 typedef enum
 {
+    BLE_BLS_CMD_NOP,
     BLE_BLS_CMD_ERASE_APP,
     BLE_BLS_CMD_WRITE_LINE,
     BLE_BLS_CMD_RESET_AND_RUN,
-    BLE_BLS_CMD_NOP,
 } ble_bls_cmd_t;
 
 typedef enum
@@ -29,7 +29,7 @@ typedef struct
 {
     ble_bls_cmd_t cmd;
     uint8_t len;
-    uint8_t data[1];
+    uint8_t * data;
 } ble_bls_evt_t;
 
 typedef struct ble_bls_s ble_bls_t;

@@ -1,18 +1,18 @@
 # List all source files the application uses.
 APPLICATION_SRCS = ../main.c
 APPLICATION_SRCS += ../ble_bls.c
-APPLICATION_SRCS += $(wildcard ../../libhexwriter/src/*.c)
+APPLICATION_SRCS += $(notdir $(wildcard ../../libhexwriter/src/*.c))
 APPLICATION_SRCS += ble_advdata.c
 APPLICATION_SRCS += ble_srv_common.c
 APPLICATION_SRCS += app_timer.c
 APPLICATION_SRCS += ble_stack_handler.c
 APPLICATION_SRCS += ble_conn_params.c
 
-# Use shell to find name of root folder. Possible but horrible to do in make.
-PROJECT_NAME = $(shell basename "$(realpath ../)")
+PROJECT_NAME = nrf51-ble-loader
+START_CODE = bootloader_startup_nrf51.s
 
 DEVICE = NRF51
-BOARD = BOARD_NRF6310
+BOARD = BOARD_PCA10001
 USE_SOFTDEVICE = S110
 
 LIBRARY_PATHS += ../../libhexwriter/inc/
