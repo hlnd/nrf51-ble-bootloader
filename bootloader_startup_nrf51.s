@@ -166,24 +166,24 @@ Reset_Handler:
     bx     r0
     .pool
     .size Reset_Handler, . - Reset_Handler
+
+	.equ APPLICATION_BASE_ADDRESS_CONSTANT, 0x20000
     
     .macro def_wrapper peripheral
-    .align 2
+    .align 1
     .thumb_func
-    .type    \peripheral\()Wrapper, %function
-    .global is_bootloader_running
+    .globl is_bootloader_running
+	.type    \peripheral\()Wrapper, %function
 \peripheral\()Wrapper:
-    ldr r1, =is_bootloader_running
-    ldr r0, [r1]
-    cmp r0, #0
+	ldr r5, =is_bootloader_running
+    ldr r4, [r5]
+    cmp r4, #0
     beq .\peripheral\()_app_handler
-	ldr r1, =\peripheral\()Handler
-	ldr r0, [r1]
-    bx r0
+	ldr r5, =\peripheral\()Handler
+	bx r5
 .\peripheral\()_app_handler :
-    ldr r1, =BOOTLOADER_SIZE+\peripheral\()Vector
-    ldr r0, [r1]
-    bx r0
+    ldr r5, =APPLICATION_BASE_ADDRESS_CONSTANT+\peripheral\()Vector
+    bx   r5
     .size    \peripheral\()Wrapper, . - \peripheral\()Wrapper
     .endm
 
@@ -200,7 +200,6 @@ Reset_Handler:
     .size    \handler_name, . - \handler_name
     .endm
     
-    .equ BOOTLOADER_SIZE, 0x20000
     def_default_handler    NMI_Handler
     def_wrapper HardFault_
     def_default_handler    HardFault_Handler

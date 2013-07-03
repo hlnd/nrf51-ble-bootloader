@@ -21,8 +21,9 @@ typedef enum
 
 typedef enum
 {
-    BLE_BLS_RESPONSE_SUCCESS,
-    BLE_BLS_RESPONSE_FAILURE,
+    BLE_BLS_RESPONSE_SUCCESS = 0,
+    BLE_BLS_RESPONSE_ILLEGAL_RECORD = 1,
+	BLE_BLS_RESPONSE_ILLEGAL_ADDRESS = 2
 } ble_bls_response_t;
 
 typedef struct

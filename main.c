@@ -81,7 +81,8 @@ static ble_gap_sec_params_t             m_sec_params;                           
 static uint16_t                         m_conn_handle = BLE_CONN_HANDLE_INVALID;    /**< Handle of the current connection. */
 static ble_bls_t                        m_bls;
 
-bool is_bootloader_running = true;
+uint32_t is_bootloader_running = true; 
+uint32_t application_base_address = 0x20000;
 
 typedef void (*application_main_t)(void);
 
@@ -98,8 +99,6 @@ void app_error_handler(uint32_t error_code, uint32_t line_num, const uint8_t * p
 {
     nrf_gpio_pin_set(CONNECTED_LED_PIN_NO);
     nrf_gpio_pin_set(ADVERTISING_LED_PIN_NO);
-    
-    
 
     while(1)
     {
@@ -248,8 +247,11 @@ void erase_app(void)
     NRF_NVMC->CONFIG = 0x0;
 }
 
-void write_record(uint32_t base_address, hexparser_record * record)
+ble_bls_response_t write_record(uint32_t base_address, hexparser_record * record)
 {
+	if ((base_address + record->address) < APPLICATION_BASE_ADDRESS)
+		return BLE_BLS_RESPONSE_ILLEGAL_ADDRESS;
+		
     NRF_NVMC->CONFIG = NVMC_CONFIG_WEN_Wen << NVMC_CONFIG_WEN_Pos;
 
     for (uint32_t i = 0; i < record->byte_count / 4; i++)
@@ -261,17 +263,21 @@ void write_record(uint32_t base_address, hexparser_record * record)
     }
     
     NRF_NVMC->CONFIG = NVMC_CONFIG_WEN_Ren << NVMC_CONFIG_WEN_Pos;
+	
+	return BLE_BLS_RESPONSE_SUCCESS;
 }
 
 ble_bls_response_t write_line(ble_bls_evt_t * evt)
 {
+	ble_bls_response_t response = BLE_BLS_RESPONSE_SUCCESS;
     static uint32_t base_address = 0;
     hexparser_record record;
     hexparser_parse_string((char * ) evt->data, evt->len, &record);
 
     if (!hexparser_is_record_valid(&record))
     {
-        return BLE_BLS_RESPONSE_FAILURE;
+		response = BLE_BLS_RESPONSE_ILLEGAL_RECORD;
+        return response;
     }
 
     switch (record.type)
@@ -281,7 +287,7 @@ ble_bls_response_t write_line(ble_bls_evt_t * evt)
             break;
 
         case DATA_RECORD:
-            write_record(base_address, &record);
+            response = write_record(base_address, &record);
             break;
 
         case EXTENDED_SEGMENT_ADDRESS_RECORD:
@@ -292,9 +298,7 @@ ble_bls_response_t write_line(ble_bls_evt_t * evt)
             break;
     }
 
-
-
-    return BLE_BLS_RESPONSE_SUCCESS;
+    return response;
 }
 
 static void advertising_start(void);
@@ -307,9 +311,15 @@ static void ble_bls_evt_handler(ble_bls_t * p_bls, ble_bls_evt_t * p_bls_evt)
     ble_bls_response_t result;
     switch (p_bls_evt->cmd)
     {
-        case BLE_BLS_CMD_ERASE_APP:
+        case BLE_BLS_CMD_NOP:
+            nrf_gpio_pin_toggle(CONNECTED_LED_PIN_NO);
+            ble_bls_response_send(p_bls, BLE_BLS_RESPONSE_SUCCESS);
+            break;
+
+		case BLE_BLS_CMD_ERASE_APP:
             sd_power_gpregret_set(0xAA);
-			sd_nvic_SystemReset();
+			err_code = sd_ble_gap_disconnect(p_bls->conn_handle, BLE_HCI_REMOTE_USER_TERMINATED_CONNECTION);
+			APP_ERROR_CHECK(err_code);
             break;
 
         case BLE_BLS_CMD_WRITE_LINE:
@@ -319,13 +329,10 @@ static void ble_bls_evt_handler(ble_bls_t * p_bls, ble_bls_evt_t * p_bls_evt)
 
         case BLE_BLS_CMD_RESET_AND_RUN:
             ble_bls_response_send(p_bls, BLE_BLS_RESPONSE_SUCCESS);
-            NVIC_SystemReset();
+			err_code = sd_ble_gap_disconnect(p_bls->conn_handle, BLE_HCI_REMOTE_USER_TERMINATED_CONNECTION);
+			APP_ERROR_CHECK(err_code);
             break;
 
-        case BLE_BLS_CMD_NOP:
-            nrf_gpio_pin_toggle(CONNECTED_LED_PIN_NO);
-            ble_bls_response_send(p_bls, BLE_BLS_RESPONSE_SUCCESS);
-            break;
     }
 }
 
@@ -417,10 +424,7 @@ static void on_ble_evt(ble_evt_t * p_ble_evt)
             nrf_gpio_pin_clear(CONNECTED_LED_PIN_NO);
             m_conn_handle = BLE_CONN_HANDLE_INVALID;
 
-            if (err_code == NRF_SUCCESS)
-            {
-                //advertising_start();
-            }
+			sd_nvic_SystemReset();
             break;
             
         case BLE_GAP_EVT_SEC_PARAMS_REQUEST:
@@ -530,6 +534,7 @@ static void power_manage(void)
  */
 int main(void)
 {
+	is_bootloader_running = 1;
     if (NRF_POWER->GPREGRET == 0xAA)
 	{
 		erase_app();
